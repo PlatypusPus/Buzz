@@ -14,6 +14,13 @@ const CONFIG = {
   HEARTBEAT_TIMEOUT: 10000,        // No pong within this = socket is a zombie
 };
 
+// Names come from other players; never put them into innerHTML raw.
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
 // ============================================
 // State Management
 // ============================================
@@ -104,9 +111,9 @@ function renderRecentSessions() {
         return `
           <button type="button" onclick="resumeRecentSession(${i})"
                   class="w-full text-left border-2 border-ink bg-white hover:bg-blue-50 p-3 font-condensed uppercase transition-all">
-            <span class="font-headline text-lg">${s.code}</span>
+            <span class="font-headline text-lg">${esc(s.code)}</span>
             <span class="mx-2 text-gray-400">·</span>
-            <span>${s.name}</span>
+            <span>${esc(s.name)}</span>
             <span class="mx-2 text-gray-400">·</span>
             <span class="uppercase">${s.role}</span>
             ${when ? `<span class="float-right text-gray-500">${when}</span>` : ''}
@@ -189,7 +196,7 @@ function initWebSocket(forceCloseExisting = false) {
 
   stopHeartbeat();
   GameState.intentionalClose = false;
-  const ws = new WebSocket(`ws://${location.host}`);
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
   GameState.ws = ws;
 
   ws.onopen = () => {
@@ -377,8 +384,6 @@ function setConnectionStatus(state) {
  * @param {Object} data - Parsed message data
  */
 function handleMessage(data) {
-  console.log('Received:', data);
-
   const handlers = {
     gameCreated: handleGameCreated,
     joinedGame: handleJoinedGame,
@@ -426,6 +431,7 @@ function handleJoinedGame(data) {
   document.getElementById('playerNameDisplay').textContent = GameState.name;
   
   showScreen('playerScreen');
+  keepAwake();
   setConnectionStatus('online');
   resyncRoundState();
   flushSendQueue();
@@ -434,7 +440,7 @@ function handleJoinedGame(data) {
 function handleError(data) {
   const errorHtml = `
     <div class="border-4 border-red-stamp bg-red-stamp/10 p-4 animate-slideDown">
-      <p class="font-bold text-red-stamp">${data.message}</p>
+      <p class="font-bold text-red-stamp">${esc(data.message)}</p>
     </div>
   `;
   document.getElementById('joinError').innerHTML = errorHtml;
@@ -477,13 +483,13 @@ function handleBuzzed(data) {
         <div class="flex items-center justify-between">
           <div>
             <span class="font-bold text-lg">${data.position === 1 ? '🏆' : '#' + data.position}</span>
-            <span class="font-bebas text-xl ml-3">${data.buzz.name}</span>
+            <span class="font-bebas text-xl ml-3">${esc(data.buzz.name)}</span>
           </div>
           <div class="font-headline text-2xl">${data.buzz.time}ms</div>
         </div>
       </div>
     `;
-    document.getElementById('hostBuzzResults').innerHTML += buzzHtml;
+    document.getElementById('hostBuzzResults').insertAdjacentHTML('beforeend', buzzHtml);
   } else {
     if (data.buzz.name === document.getElementById('playerNameDisplay').textContent) {
       document.getElementById('buzzBtn').disabled = true;
@@ -590,7 +596,7 @@ function updateParticipants(participants) {
   } else {
     list.innerHTML = participants.map((p, index) => 
       `<div class="border-l-4 ${p.connected === false ? 'border-gray-300 bg-gray-100' : 'border-blue-ink bg-blue-ink/5'} p-3 animate-slideDown" style="animation-delay: ${index * 0.05}s">
-        <span class="font-condensed text-base">👤 ${p.name}${p.connected === false ? ' <span class="text-gray-500">(offline)</span>' : ''}</span>
+        <span class="font-condensed text-base">👤 ${esc(p.name)}${p.connected === false ? ' <span class="text-gray-500">(offline)</span>' : ''}</span>
       </div>`
     ).join('');
   }
@@ -621,7 +627,7 @@ function updateLeaderboard(leaderboard) {
         <div class="flex items-center gap-4">
           <div class="text-4xl md:text-5xl min-w-[60px] text-center">${rank.medal}</div>
           <div class="flex-1">
-            <div class="font-bebas text-2xl md:text-3xl mb-1">${entry.name}</div>
+            <div class="font-bebas text-2xl md:text-3xl mb-1">${esc(entry.name)}</div>
             <div class="font-condensed text-xs md:text-sm text-gray-700">
               Current Round • Position: <span class="font-bold">#${entry.position}</span>
             </div>
@@ -663,7 +669,7 @@ function updateCurrentRoundLeaderboard(leaderboard) {
         <div class="flex items-center gap-4">
           <div class="text-4xl md:text-5xl min-w-[60px] text-center">${rank.medal}</div>
           <div class="flex-1">
-            <div class="font-bebas text-2xl md:text-3xl mb-1">${entry.name}</div>
+            <div class="font-bebas text-2xl md:text-3xl mb-1">${esc(entry.name)}</div>
             <div class="font-condensed text-sm text-gray-700">
               Current Round Position: <span class="font-bold">#${entry.position}</span>
             </div>
@@ -805,6 +811,20 @@ function leaveGame() {
 }
 
 // ============================================
+// Screen Wake Lock (iOS 16.4+)
+// ============================================
+
+// A phone that auto-locks mid-quiz drops its socket; keep the screen on while playing.
+let wakeLock = null;
+async function keepAwake() {
+  try {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (_) { /* unsupported or denied (e.g. low power mode) */ }
+}
+
+// ============================================
 // Lifecycle / Visibility
 // ============================================
 
@@ -815,6 +835,7 @@ function leaveGame() {
  */
 function handleResume() {
   if (!GameState.gameCode) return;
+  keepAwake();
 
   const ws = GameState.ws;
   if (ws && ws.readyState === WebSocket.OPEN) {

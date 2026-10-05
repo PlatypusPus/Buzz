@@ -8,6 +8,7 @@ const fs = require('fs');
 const WebSocket = require('ws');
 const path = require('path');
 const os = require('os');
+const zlib = require('zlib');
 
 // Configuration
 const PORT = process.env.PORT || 3001;
@@ -63,6 +64,7 @@ class Game {
     this.roundStartTime = null;
     this.roundCounter = 0;
     this.roundEligibleIds = new Set();
+    this.lastActive = Date.now();
   }
 
   addParticipant(id, name) {
@@ -201,40 +203,67 @@ class Game {
 // HTTP Server
 // ============================================
 
-const server = http.createServer((req, res) => {
-  let filePath;
-  let contentType = 'text/html';
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+};
+const PAGES = {
+  '/': 'index.html',
+  '/index.html': 'index.html',
+  '/leaderboard': 'leaderboard.html',
+  '/leaderboard.html': 'leaderboard.html',
+  '/history': 'history.html',
+  '/history.html': 'history.html',
+};
 
-  // Route handling
-  const pathname = new URL(req.url, 'http://localhost').pathname;
-  if (pathname === '/' || pathname === '/index.html') {
-    filePath = path.join(PUBLIC_DIR, 'index.html');
-  } else if (pathname === '/leaderboard' || pathname === '/leaderboard.html') {
-    filePath = path.join(PUBLIC_DIR, 'leaderboard.html');
-  } else if (pathname === '/history' || pathname === '/history.html') {
-    filePath = path.join(PUBLIC_DIR, 'history.html');
-  } else if (pathname.endsWith('.js')) {
-    filePath = path.join(PUBLIC_DIR, pathname);
-    contentType = 'application/javascript';
-  } else if (pathname.endsWith('.css')) {
-    filePath = path.join(PUBLIC_DIR, pathname);
-    contentType = 'text/css';
-  } else {
+// Files are small and static: read + gzip once, serve from memory afterwards.
+// ponytail: cached for process lifetime, restart the server after editing public/.
+const fileCache = new Map();
+
+function loadFile(filePath) {
+  let entry = fileCache.get(filePath);
+  if (!entry) {
+    const raw = fs.readFileSync(filePath);
+    entry = { raw, gzip: zlib.gzipSync(raw) };
+    fileCache.set(filePath, entry);
+  }
+  return entry;
+}
+
+const server = http.createServer((req, res) => {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch (_) {
+    pathname = ''; // malformed %-escape
+  }
+  const filePath = path.join(PUBLIC_DIR, PAGES[pathname] || pathname);
+  const contentType = MIME[path.extname(filePath)];
+
+  // Only serve html/js/css, and never anything outside PUBLIC_DIR.
+  if (!contentType || !filePath.startsWith(PUBLIC_DIR + path.sep)) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('404 - Not Found');
     return;
   }
 
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('500 - Internal Server Error');
-      console.error('Error reading file:', err);
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(data);
-  });
+  try {
+    const { raw, gzip } = loadFile(filePath);
+    const useGzip = (req.headers['accept-encoding'] || '').includes('gzip');
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=300',
+      Vary: 'Accept-Encoding',
+      ...(useGzip && { 'Content-Encoding': 'gzip' }),
+    });
+    res.end(useGzip ? gzip : raw);
+  } catch (err) {
+    const missing = err.code === 'ENOENT';
+    res.writeHead(missing ? 404 : 500, { 'Content-Type': 'text/plain' });
+    res.end(missing ? '404 - Not Found' : '500 - Internal Server Error');
+    if (!missing) console.error('Error reading file:', err);
+  }
 });
 
 // ============================================
@@ -290,6 +319,20 @@ const heartbeatTimer = setInterval(() => {
 }, HEARTBEAT_INTERVAL);
 
 wss.on('close', () => clearInterval(heartbeatTimer));
+
+// Participants are only marked offline (never deleted), so cleanupGameIfEmpty never
+// frees a game that people simply walked away from. Drop games nobody is connected to
+// for an hour.
+const GAME_IDLE_TTL = 60 * 60 * 1000;
+const sweepTimer = setInterval(() => {
+  const live = new Set([...connections.values()].map((c) => c.gameCode));
+  const now = Date.now();
+  games.forEach((game, code) => {
+    if (live.has(code)) game.lastActive = now;
+    else if (now - (game.lastActive || now) > GAME_IDLE_TTL) games.delete(code);
+  });
+}, 5 * 60 * 1000);
+sweepTimer.unref();
 
 function handleMessage(clientId, data) {
   const conn = connections.get(clientId);

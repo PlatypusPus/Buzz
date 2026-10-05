@@ -8,31 +8,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no">
   <title>📊 Game History & Statistics</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/tailwind.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Archivo+Black&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            'headline': ['"Anton"', 'sans-serif'],
-            'bebas': ['"Bebas Neue"', 'sans-serif'],
-            'archivo': ['"Archivo Black"', 'sans-serif'],
-            'condensed': ['"Roboto Condensed"', 'sans-serif'],
-          },
-          colors: {
-            'paper': '#f5e6d3',
-            'ink': '#1a1a1a',
-            'red-stamp': '#d32f2f',
-            'blue-ink': '#1565c0',
-          },
-        },
-      },
-    }
-  </script>
   <style>
+    /* iPhone: keep content clear of the notch / home bar (viewport-fit=cover) and use
+       the dynamic viewport so Safari's URL bar does not force a scroll. */
+    html { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+    .min-h-screen { min-height: 100dvh; }
     /* iOS: kill the legacy ~300ms click delay and stop double-tap zoom. */
     button, input {
       touch-action: manipulation;
@@ -197,6 +181,9 @@
   </div>
 
   <script>
+    function esc(v) {
+      return String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    }
     // WebSocket connection and game state
     let ws = null;
     let gameCode = null;
@@ -210,7 +197,7 @@
     });
 
     function initWebSocket() {
-      ws = new WebSocket(`ws://${location.host}`);
+      ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
 
       ws.onopen = () => {
         console.log('✅ Connected to server');
@@ -359,7 +346,7 @@
             <div class="flex items-center gap-4 md:gap-8">
               <div class="text-4xl md:text-6xl min-w-[80px] md:min-w-[120px] text-center">${rank.medal}</div>
               <div class="flex-1">
-                <div class="font-headline text-3xl md:text-5xl mb-2 uppercase">${entry.name}</div>
+                <div class="font-headline text-3xl md:text-5xl mb-2 uppercase">${esc(entry.name)}</div>
                 <div class="font-condensed text-sm md:text-xl text-gray-700 grid grid-cols-3 gap-4">
                   <div>
                     <span class="block text-xs uppercase">Avg Speed</span>
@@ -406,13 +393,13 @@
               <h3 class="font-headline text-2xl md:text-3xl">ROUND ${round.roundNumber}</h3>
               <div class="text-right">
                 <div class="font-condensed text-sm text-gray-600">Winner</div>
-                <div class="font-bebas text-xl">${winner ? winner.name : 'N/A'} ${winner ? '🏆' : ''}</div>
+                <div class="font-bebas text-xl">${winner ? esc(winner.name) : 'N/A'} ${winner ? '🏆' : ''}</div>
               </div>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               ${sortedBuzzes.map((buzz, pos) => `
                 <div class="border-2 border-gray-300 p-3 ${pos === 0 ? 'bg-yellow-100 border-yellow-500' : ''}">
-                  <div class="font-bebas text-lg">#${pos + 1} ${buzz.name}</div>
+                  <div class="font-bebas text-lg">#${pos + 1} ${esc(buzz.name)}</div>
                   <div class="font-condensed text-sm text-gray-600">${buzz.time}ms</div>
                 </div>
               `).join('')}

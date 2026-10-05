@@ -9,31 +9,15 @@
   <meta name="apple-mobile-web-app-title" content="Buzzer">
   <meta name="format-detection" content="telephone=no">
   <title>🎯 BUZZER GAME - Event System</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/tailwind.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Archivo+Black&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            'headline': ['"Anton"', 'sans-serif'],
-            'bebas': ['"Bebas Neue"', 'sans-serif'],
-            'archivo': ['"Archivo Black"', 'sans-serif'],
-            'condensed': ['"Roboto Condensed"', 'sans-serif'],
-          },
-          colors: {
-            'paper': '#f5e6d3',
-            'ink': '#1a1a1a',
-            'red-stamp': '#d32f2f',
-            'blue-ink': '#1565c0',
-          },
-        },
-      },
-    }
-  </script>
   <style>
+    /* iPhone: keep content clear of the notch / home bar (viewport-fit=cover) and use
+       the dynamic viewport so Safari's URL bar does not force a scroll. */
+    html { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+    .min-h-screen { min-height: 100dvh; }
     body {
       font-family: 'Roboto Condensed', sans-serif;
       background: #f5e6d3;
@@ -286,7 +270,7 @@
         <div id="playerRoundInfo" class="mb-6"></div>
 
         <div class="flex justify-center my-12">
-          <button id="buzzBtn" onclick="buzz()" disabled
+          <button id="buzzBtn" onpointerdown="buzz()" disabled
                     class="buzz-target w-48 h-48 md:w-64 md:h-64 rounded-full bg-red-stamp hover:bg-red-700 text-white font-headline text-3xl md:text-5xl uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95 border-8 border-ink shadow-2xl select-none">
               BUZZ!
             </button>
